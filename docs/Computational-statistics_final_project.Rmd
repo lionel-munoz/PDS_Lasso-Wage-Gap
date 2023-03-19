@@ -1,0 +1,1211 @@
+---
+title: "Using the LASSO to analyse and decompose Wage Gaps"
+subtitle: "Bonn University - Computational Statistics | Summer Term 2022"
+author: "Lionel Antonio Muñoz Rosas - Student ID: 3290865"
+date: 'August 22, 2022'
+output:
+  html_document:
+bibliography: compstats.bib
+csl: journal-of-econometrics.csl
+geometry: margin=1cm
+---
+
+<style type="text/css">
+
+h1.title {
+  font-size: 34px;
+  text-align: center;
+}
+h3.subtitle {
+    font-size: 24px;
+  text-align: center;
+}
+h4.author {
+    font-size: 18px;
+  text-align: center;
+}
+h4.date {
+    font-size: 18px;
+  text-align: center;
+}
+
+</style>
+
+
+
+## Table of Contents
+- [Introduction](## Introduction)
+- [Theory](## Theory)
+  * [The LASSO](### The LASSO)
+  * [Post-Double-Selection LASSO](### Post-Double-Selection LASSO)
+- [Simulation](## Simulation)
+  * [Data Generating Process](### Data Generating Process)
+  * [Simulation](### Simulation)
+- [Empirical Application](## Empirical Application)
+- [Conclusion](## Conclusion)
+- [References](## References)
+
+<div style="margin-bottom:30px;">
+ </div>
+
+```{r, include = FALSE}
+library(tidyverse)
+library(hdm)
+library(glmnet)
+library(mvtnorm)
+library(ggplot2)
+library(MASS)
+library(Matrix)
+library(viridis)
+library(patchwork)
+library(kableExtra)
+library(haven)
+```
+
+## 1. Introduction
+
+The Wage Gap has been object of much research in the field of economics. It has been used to discuss the lengths to which social inequalities translate into economic disparities and to which extent this is driven by so called *wage penalties*. Furthermore, as a topic of public interest, the use of comparisons between the mean earnings of one group and another have been widespread, usually not contending the possible heterogeneity and structural differences that, at least partially, drive the gap as well. Applied econometricians have intended to tackle and investigate the issue through diverse methods. Typically, however, these have been rooted in linear applications of least squares regressions. 
+
+A series of recent research has nevertheless targeted the topic from a new perspective using Machine Learning methods to exploit the increased dimensionality surveys and relevant datasets have (Bach et al., [-@bach_2018a]; Böheim and Stöllinger [-@B_heim_2020]; Bonaccolto-Töpfer and Briel, [-@topfer_2022]; Danquah et al., [-@danquah_2021]; Strittmatter and Wunsch, [-@strittmatter_2021]; Bonnacolto-Töpfer and Briel [-@topfer_2022]). The least absolute shrinkage and selection operator (LASSO) has been such a chosen method. As a method for Regularization, the LASSO induces a shrinkage through an $\ell_1$ norm penalization that in practice (and dependent on the penalization term) reduces the least correlated regressors with the outcome variable of a given model to 0. This feature makes it ideal for *model selection*, especially in cases of High Dimensionality with sparse regressor vectors, and thus can help decompose wage gaps.
+
+The mentioned research makes use of a special version of the methodology, namely the Post-Double-Selection LASSO (PDS-LASSO) (Belloni et al., [-@belloni_2014a]; Belloni et al., [-@belloni_2014b]. This method is intended to overcome omitted-variable-bias when running a least squares regression after a single LASSO model selection while dealing with treatment or structural effects. Here, the LASSO solely selects the variables most related to the outcome variable and may thus omit others related to the effect. 
+
+While the analysis of the wage gap does not straightforwardly correspond to the context of treatment effects and thus to the Potential Outcomes Model, the notion of an *exogenous* wage penalty to individuals of a specific group can be understood as a sort of treatment. The novel research specifically directed to analyse the wage gap through the methodology implicitly makes this assumption and proceeds to use it to infer the extent of such penalty.
+
+The purpose of this project is to propose a simulation that analyses the extent to which, in different environments, the use of the PDS-LASSO is useful in the context of the wage gap. The simulation I use is intended to emulate the environment presented by [@Rubinstein_2013], where the authors analytically approach the extent of the ethnic wage gap between people of jewish Ashkenazi and Spehardic origin in Israel. The authors of the paper do this by making use of Least Squares regressions where chosen covariates correspond to a diverse set of socioeconomic and demographic characteristics, but where the main ethnicity indicator is the last name of targeted individuals in the census data the paper uses. I approach this setting by establishing a data generating process that exogenously penalizes the income of individuals whose perceived ethinicity is Sephardic. Other relevant variables and also those interrelated with preceived ethnicity are included.
+
+I find that the PDS-LASSO outperforms other methodologies when the amount of covariates is more reduced and the sparsity as well. When increasing both, other methodologies appear to render more accurate results, although MSE's of all rise with dimensionality.
+
+The project is organized as follows. The second section describes the theory behind the methodology, while the third the data-generating process. Section 4 presents the simulation and results, section 5 the application of the methodology on the data the paper uses. Section 6 concludes the project. 
+
+
+## 2. Theory
+
+### 2.1 The LASSO
+
+If we consider the standard linear regression model
+
+\begin{equation}
+
+y_i=\boldsymbol{\beta_0} +\mathbf{x}_i^\prime \boldsymbol{\beta}+\epsilon_i, \quad i = 1, \ldots, n,
+\tag{1}
+\end{equation}
+
+where $\mathbf{x}_i=(x_{i1}, ..., x_{ip})$ and $p$ is the number of regressors, we can consider the LASSO functions as in (1). Here, the LASSO applies a $\ell_1$ penalization to the constraint minimization of a given least sqaures model, as described in the introduction. This penalization or, more specifically, the constraint region corresponding to the $\ell_1$-norm depends on any arbitrary $t$.
+
+\begin{equation}
+ \hat{\boldsymbol{\beta}}^{\text{LASSO}}=\underset{\boldsymbol{\beta}}{\arg \min}\sum_{i=1}^N (y_i-\beta_0-\sum_{j=1}^p x_{i j}\beta_j)^2
+ \tag{2}
+ \end{equation} 
+ 
+ subject to 
+ 
+ \begin{equation}
+ \sum_{j=1}^{p}\left|\beta_{j}\right|\leq t
+ \tag{3}
+ \end{equation}
+ 
+Furthermore, it is possible to re-write equation 1 as in equation 2 where we convert the constraint on the linear model to a Lagrange-like function with the penalty term $\lambda$.
+
+\begin{equation}
+\begin{aligned}
+\hat{\boldsymbol{\beta}}^{\text{LASSO}} &=\underset{\boldsymbol{\beta}}{\arg \min}\left\{\frac{1}{2}\sum_{i=1}^N (y_i-\beta_0-\sum_{j=1}^p x_{i j}\beta_j)^2 +\lambda \left(\sum_{j=1}^p |\beta_j|\right)\right\}.\\
+\end{aligned}
+\tag{4}
+\end{equation}
+
+Unlike the penalty term of its $\ell_2$-norm counterpart ($\sum_{j=1}^p |\beta_j^2|$), the Ridge, the penalty of the LASSO ($\sum_{j=1}^p |\beta_j|$) makes the solutions nonlinear for $y_i$, thus making a closed form solution, as with the Ridge, infeasible. From this starting point, finding a solution to the LASSO becomes a non-quadratic problem, whose approach depends on efficient algorithms as the shooting-LASSO, the Least-Angle Regression algorithm and others. Due to the nature of this constraint, making $t$ small enough will make certain coefficients drop to 0. It is from this quality that the LASSO becomes a useful tool for model selection. Moreover and although this is a known quality, the nature of the shrinkage is not obvious and requires a closer analysis. In general terms however, considering the least squares case described in the beginning of this section, if $t$ is chosen larger than $t_0 = \sum_{j=1}^p |\beta_j|$, then the lasso estimates will equal those of $\beta^{OLS}$. On the contrary, if we would have a choice of $t$ as in $t = t_0/4$, then we could expect the coefficients to be shrunken by about 25 percentage points. Hence, the choice of the shrinkage factor plays a key role in the final model selection the method makes.
+
+### 2.2 Post-Double-Selection LASSO
+
+As mentioned in section 1, while the LASSO is capable of performing model selection due to its shrinkage qualities, it is not fully efficient while doing so in the context of treatment or structural effects, or as in this project, in the case of the Wage Gap with an *exogenous* wage penalty. By running a single LASSO to select the relevant coefficients in regards to the outcome variable $y$ and use the selected regressors to run a least squares regression, one might be incurring Omitted Variable Bias. Several coefficients related to the treatment, may be omitted due to its reduced relation to the outcome variable directly and thus one may end up with a coefficient on the treatment variable that mistakenly portrays an effect it does not have. 
+
+To construct a LASSO-method that accounts for this special case and that as such yields an unbiased estimate for the treatment variable and the outcome variable $y$, it is first necessary to do a small modification to the LASSO that was introduced by [@belloni_2012] as is portrayed in equation 3 as can be seen in 5.
+
+\begin{equation}
+\begin{aligned}
+\hat{\boldsymbol{\beta}}^{\text{LASSO}} &=\underset{\boldsymbol{\beta}}{\arg \min}\left\{\frac{1}{2}\sum_{i=1}^N (y_i-\beta_0-\sum_{j=1}^p x_{i j}\beta_j)^2 +\lambda \left(\sum_{j=1}^p |\beta_j|\eta_j\right)\right\}.\\
+\end{aligned}
+\tag{5}
+\end{equation}
+
+The main difference in comparison to equation 2 is the multiplication of the so called *penalty loadings* $\eta_j$ with the penalty term. Including $\eta_j$ into the equation enables the LASSO to ensure equivariance of the estimated coefficients when the control coefficients are rescaled. It further addressess non-normality in the model errors, heteroscedasticity and clustering, thus introducing a sort of *self-normalization* that is data-dependent and defined via an interative procedure (see Belloni et al.,  [-@belloni_2014b]). 
+[@belloni_2012] extend this iterative procedure to the penalty term $\lambda$ and propose a further data-dependent measurement procedure. In the paper they show that if prediction is not the outcome of interest, this procedure (portrayed in equation 6) renders better results in comparison to the $\lambda$ obtained by Cross-Validation. 
+
+\begin{equation}
+\lambda=2c \sqrt{n} \phi^{-1} (\frac{1-\gamma}{2p})
+\tag{6}
+\end{equation}
+
+In equation 6 $\lambda$ is measured as a rescaled critical value and in whose function $c > 1$ is a constant, $(1 - \gamma)$ a confidence interval, $p$ represents the regressors and $\phi$ the cummulative standard normal distribution (see [@belloni_2014b]). For the simulation, this project uses $c = 1.11$ and $\gamma = 0.05$ as proposed in [@belloni_2014b].
+Whit this it is that the PDS-LASSO can be constructed. As explained in the introduction, the PDS-LASSO bases itself on the idea of avoiding Omitted Variable Bias in cases in which which the intention is to do inference to treatment or structural coefficients, more generally, based on causality. The double selection methodology is further based on otrhogonalized moments equations and introduces an extra lasso-step that ensures that variables related to the outcome and variable of interest are not set to zero. It does so by going through three steps in which, first, the LASSO is run on all the model regressors while excluding the treatment variable with the $y$ as an outcome variable. This results into the set of selected regressors that have not been shrunken to 0, denoted as $I_y$. Secondly the PDS-LASSO runs the LASSO on all regressors, only this time introducing the treatment variable as the outcome. Here, the set of selected regressors is denoted by $I_E$. Finally, using the union of both selection sets $\hat{I} = I_y \cup I_E$, the procedure runs a least squares regression.
+
+While the methodology is constructed upon the assumptions of the standard LASSO, the most important one it further induces is called *approximate sparsity*. It states that solely a subset of the covariates explains the outcome and that thus the rest of existing ones have no relationship with the target variable. Formally speaking, this assumption is best described by $s^2 << n$, where $s$ represents the sparse vector explaining the outcome and $n$ the number of observations. This assumption may therefore not constrain the applied practitioner as, in general and when working with large datasets, it is arguably correct to assume that this holds. However, when running simulations or perhaps working with reduced observations, the assumption can become an issue, as only a reduced amount of covariates need to be able to explain the outcome since otherwise the methodology will not make correct inference. To this, [@Chernozhukov_2018] develop a methodology that overcomes such constraints in the context of Machine Learning methods by making use of the *Neyman Orthogonality Procedure* and Cross-Validating the data the method is applied to, as [@belloni_2014b] also propose. While useful in the context of this project, its implementation would require steps that go beyond the scope of the analysis.
+
+## 3. Simulation
+### 3.1 Data Generating Process
+
+\begin{equation}
+y_i=\beta_0 E_i + m(z_i) + \sigma_y(E_i, x_i)\xi_i
+\tag{7}
+\end{equation}
+
+\begin{equation}
+E_i = g(z_i) + \sigma_E(x_i)\upsilon_i
+\tag{8}
+\end{equation}
+
+Broadly speaking, the Data Generating Process for the simulation of the project as depicted in equation 7 and 8 bases itself on the one used in [@belloni_2014b]. Here, $\sigma_y(E_i, x_i)$ and $\sigma_E(x_i)$ represent the error terms and $\xi_i$ and $\upsilon_i$ the penalty loadings. Further, $m(z_i)$ can be understood as an equivalent to $I_y$ and $g(z_i)$ as an equivalent to $I_E$. Moreover, the regression to be run after the regressors selection procedure is best displsayed by equation 9. Here, $\alpha_0$, indicating the treatment or $Ethnic$ coefficient is thus one of the results of the regression. Correspondingly equation 7 only includes regressors included in $\hat{I}$.
+
+\begin{equation}
+\begin{aligned}
+(\hat{\boldsymbol{\alpha_0}},\hat{\boldsymbol{\beta_j}}) &=\underset{\alpha \in \mathbb{R}, \beta \in \mathbb{R}^{p}}{\arg \min}\left\{\mathbb{E}_n[(y_i-d_i\alpha -x_i\prime \beta)^2] : \beta_j=0, \forall j \notin\hat{I}\right\}.\\
+\end{aligned}
+\tag{9}
+\end{equation}
+
+The equations above represent a Data Generating process for the typical case of a Partial Linear Regression as is described in [@belloni_2014b]. Here, the treatment variable, the one inference is made upon, is generated by equation 9. The case this project tries to address however, corresponds to the one described in [@Rubinstein_2013], where *Ethnicity* is the variable whose coefficient and thus effect the authors want to infer. Evidently, this is exogenously determined and has no real function that can potentially explain it. Although the paper thus addresses perceived ehtnicity by analysing the wage gap between individuals whose last name can be inferred to be Ashkenazi against those whose last name to be Sephardic, the authors concentrate on the case of individuals coming from mixed unions and where therefore the most likely difference between them solely relies on their last name. In the paper, the authors demonstrate through descriptive statistics that there are no significant differences between groups and that if any, individuals born to unions where the father is Sephardic and the mother Ashkenazi should, by their observable characteristics, earn more, even though they are the ones earning less. In the Israeli Labor Market, being perceived as Sephardic is penalized with a reduced income. Correspondingly, there does not appear to be any specific features besides the *Sephardic Penalization* that make individuals different and that therefore should be addressed with a step as in equation 8.
+
+Therefore, the Data Generating Process of this project can be best described by equation 10 and 11. Here, $y_i$ represents income, $E_i$ ethnicity, $\beta_1$ the exogenous *Ethnic penalty* and $\epsilon_i$ the error term. We further have that $i = 1, ... , n$ and $(p_j, p_k, p_l) = p$, where $j = 1, ..., p_j$, $k = 1, ..., p_k$ and $l = 1, ..., p_l$. Correspondingly, $x_{i,k}$ represents the covariates under the full specification of the model that includes 4 indicator variables on *Education, Occupation* and two variables on the inferred skin colour of individuals analysed, as is done in [@Rubinstein_2013]; I call these variables *Chromatic Scale*. Further, I separate the resting covariates into $x_{i,k}$ and $x_{i,l}$, as I generate corresponding *betas* as drawn from a normal distribution with $\mu = 3$ and $\sigma = 1$ ($\beta^{\text{NORMAL}}_k$) and also as having these follow a decay. For the latter, the decay is determined by $\rho = 0.5$, while the threshold by 4 and thus as $\beta^{\text{DECAY}}_l = 4^{\rho_l}$. I follow this approach to address potential differences in the nature of *betas* in real data. Finally, $\epsilon_i$ is determined as being drawn from a normal distribution with $\mu = 0$ and $\sigma = 8$ and $X = (x_{i,j}, x_{i,k}, x_{i,l})$ by either a Toeplitz Covariance Matrix or one with 1's in the diagonal and 0's on the off-diagonal; $\mu_i$ as taken from a random uniform distribution with parameters [4.5, 12].
+
+\begin{equation}
+\begin{aligned}
+y_i = \beta_0 + \beta_1 E_i + \beta^{\text{NORMAL}}_k x_{i,k} + \beta^{\text{DECAY}}_l x_{i,l} + \epsilon_i
+\end{aligned}
+\tag{10}
+\end{equation}
+
+\begin{equation}
+\begin{aligned}
+y_i = \beta_0 + \beta_1 E_i + \beta^{\text{FULL}}_j x_{i,j} + \beta^{\text{NORMAL}}_k x_{i,k} + \beta^{\text{DECAY}}_l x_{i,l} + \epsilon_i
+\end{aligned}
+\tag{11}
+\end{equation}
+
+Furthermore, there are two equations to the Data Generating Process, as there are two general approaches that I use. First, equation 10 explains a simplified process where $y$ is generated by $X = (x_{i,k}, x_{i,l})$ and $E_i$ with the corresponding *betas*. $E_i$ is exogenously determined in that the process function establishes the size of the wage gap in absolute terms by multiplying the share of the gap with the average income of Ashkenazi individuals. This enables me to conceive the gap as of a size that emerges from the counterfactual assumption that Ashkenazi and Sephardic individuals should earn the same. The function then affects the income of observations indicated to be Sephardic by reducing it by the gap, which is multiplied by a factor centered at one for all corresponding observations. The effect of the Full Model specification are also determined by a multiplication of the corresponding coefficient with a factor centered at one for each observation. Moreover, I make use of the simplified version to explore how the methodology unfolds in the most simple case, while equation 11 introduces other variables that find a counterpart in the empirical approach of [@Rubinstein_2013]. Beyond this, the process also introduces interactions between the Ethnicity Indicator variable and other randomly chosen covariates whose extent is determined within the process function. This is further complemented by a flexible choice of the sparsity $s$ of the $beta$ vector. All of this together, enables me to generate a Data Generating Process where the wage gap by perceived ethnicity is increasingly masked by other variables and where it becomes very important to first determine what variables are related to the treatment.  
+
+```{r dgp, echo=TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+
+dgp <- function(N, Mu, Sigma_grid, pshare, constant, beta_moments, sparsity, 
+                threshold = 0, varnoise, ethnic_share, rho,
+                gap_percentage, interaction_grid, base_covar = FALSE, model_par = 0,
+                full_model = FALSE, beta_decay = FALSE){
+  if(full_model == TRUE){
+    extra_reg <- 8
+    add_extra <- 3
+  }else{
+    extra_reg <- 1
+    add_extra <- 0
+  }
+  
+  #Starting with coefficients
+  p <- round(N*pshare)
+  beta <- vector("numeric", p - add_extra)
+  beta_norm <- rnorm(p - extra_reg + add_extra, mean = beta_moments[1], sd = beta_moments[2])
+  
+  #Defining Sparsity
+  if(sparsity != 0){
+    spar_p <- p - extra_reg + add_extra
+    spar_grid <- seq(1,spar_p)
+    #sp_zero <- sample(spar_grid, spar_p - round(sparsity*spar_p))
+    sp_zero <- sample(spar_grid, spar_p - (sparsity - extra_reg + add_extra))
+    sp <- spar_grid[!spar_grid %in% sp_zero]
+    beta_norm[c(sp_zero)] <- 0
+  }
+  
+  #Defining decay in beta
+  if(beta_decay == TRUE){
+    decay_len <- round(length(sp)*0.65)
+    bdecay <- (rep(threshold,decay_len)/seq(1,decay_len,1))^rho
+    decay_grid <- sample(sp, decay_len)
+    beta_norm[decay_grid] <- bdecay
+  }
+  beta[(extra_reg-add_extra + 1):(p)] <- beta_norm
+  
+  #Defining betas of specific variables
+  if (full_model == TRUE){
+    #beta[3] <- constant*1.5*0.025
+    beta[3] <- model_par[1]
+    #beta[4] <- constant*1.5*0.01
+    beta[4] <- model_par[1]
+    #beta[5] <- -(constant*1.5*((0.01)^2))
+    beta[5] <- model_par[2]
+    beta[6] <- model_par[2]
+  }
+  
+  #Variance and mean of regressors
+  if(base_covar == TRUE){
+    covar <- Matrix(0.05, nrow = p - extra_reg + add_extra - 1, ncol = p - extra_reg + add_extra - 1)
+    diag(covar) <- runif(p - extra_reg + add_extra - 1, Sigma_grid[1], Sigma_grid[2])
+  }else{
+    covar <- toeplitz(rho^(0:(p - 1 - extra_reg + add_extra - 1)))
+    diag(covar) <- runif(p - extra_reg + add_extra - 1, Sigma_grid[1], Sigma_grid[2])
+  }
+  mu <- abs(runif(p - extra_reg + add_extra - 1, Mu[1], Mu[2]))
+  
+  #Defining Regressors outside of specifics
+  X <- mvrnorm(n = N, mu = mu, Sigma = covar)
+  
+  #Defining Ethinicity Dummy
+  seph_ord <- sample(1:N, (N*ethnic_share), replace = FALSE)
+  Sephardic <- rep(0,N)
+  Sephardic[seph_ord] <- 1
+  
+  seph_sum <- sum(Sephardic)
+  ash_ord <- which(Sephardic %in% c(0))
+  ord_list <- list(list1 = seph_ord, list2 = ash_ord)
+  
+  #Chromatic Scale
+  pre_mean_ord <- sample(1:length(seph_ord), round(length(seph_ord)*0.5), replace = FALSE)
+  Chromatic_mn <- rep(0,N)
+  mean_ord <- seph_ord[pre_mean_ord]
+  Chromatic_mn[mean_ord] <- 1
+  
+  pre_wide_ord <- which(!(1:length(seph_ord)) %in% pre_mean_ord)
+  Chromatic_wd <- rep(0,N)
+  wide_ord <- seph_ord[pre_wide_ord]
+  Chromatic_wd[wide_ord] <- 1
+  
+  chrom_list <- list(list1 = mean_ord, list2 = wide_ord)
+  
+  #Defining Specific Variables
+  
+  if(full_model == TRUE){
+    
+    seph_educ_share <- sample(c(0,1),N*ethnic_share, replace = TRUE, prob = c(0.43,0.57))
+    ash_educ_share <- sample(c(0,1),N*(1 - ethnic_share), replace = TRUE, prob = c(0.52,0.48))
+    Education_seph <- rep(0,N)
+    Education_ash <- rep(0,N)
+    Education_seph[ord_list$list1] <- seph_educ_share
+    Education_ash[ord_list$list2] <- ash_educ_share
+    
+    highed_seph_ord <- which(Education_seph %in% c(1))
+    highed_ash_ord <- which(Education_ash %in% c(1))
+    Education_seph[highed_seph_ord] <- rnorm(length(highed_seph_ord),0.6,1.4)
+    Education_ash[highed_ash_ord] <- rnorm(length(highed_ash_ord),0.8,1.2)
+    Ed_ord <- c(highed_seph_ord, highed_ash_ord)
+    
+    seph_occ_share <- sample(c(0,1), N*ethnic_share, replace = TRUE)
+    ash_occ_share <- sample(c(0,1), N*ethnic_share, replace = TRUE)
+    Occ_seph <- rep(0,N)
+    Occ_ash <- rep(0,N)
+    Occ_seph[ord_list$list1] <- seph_occ_share
+    Occ_ash[ord_list$list2] <- ash_occ_share
+    
+    highpay_seph_ord <- which(Occ_seph %in% c(1))
+    highpay_ash_ord <- which(Occ_ash %in% c(1))
+    Occ_seph[highpay_seph_ord] <- rnorm(length(highpay_seph_ord),0.5,1.5)
+    Occ_ash[highpay_ash_ord] <- rnorm(length(highpay_ash_ord),0.7,1.3)
+    Occ_ord <- c(highpay_seph_ord, highpay_ash_ord)
+    
+    #Adding new Variables to X
+    X <- cbind(Education_seph, Education_ash, Occ_seph, Occ_ash, X)
+  }else{
+    #Adding new Variables to X
+    X <- X
+  }
+  
+  #Defining Error Term
+  err <- rnorm(n=N, 0, sqrt(varnoise))
+
+  
+  #Interactions with Ethnicity dummy
+  left_p <- which(!(1:(p-extra_reg - 1 + add_extra)) %in% sp)
+  left_p <- left_p[!left_p %in% 1:(extra_reg + add_extra)]
+  inter_sample <- sample(left_p, round(length(left_p)*(ethnic_share*(2/3)), digits=0), 
+                         replace = FALSE)
+  interlen <- length(inter_sample)
+  
+  long <- length(ord_list$list1)
+  mu1 <- mu[inter_sample]
+  reduction <- Matrix(runif(long*interlen,interaction_grid[1],interaction_grid[2]),
+                      nrow = long, ncol = interlen)
+  fincoefs <- t(mu1*t(reduction))
+  
+  for (i in 1:interlen){
+    X[seph_ord,inter_sample[i]] <- X[seph_ord,inter_sample[i]]-fincoefs[,i]
+  }
+  
+  #Output
+  pre_X <- cbind(rep(constant,N),X)
+  pre_beta <- beta[-1]
+  pre_beta[1] <- 1
+  pre_Y <- pre_X%*%pre_beta + err
+  
+  mn_ash <- (sum(pre_Y[ord_list$list2])/(N*ethnic_share))
+  gap <- (mn_ash - mn_ash*(1-gap_percentage))
+  
+  Seph2 <- Sephardic 
+  Seph2[seph_ord] <- runif(N*ethnic_share, 0.6, 1.4)
+  
+  Chrom_mn2 <- Chromatic_mn
+  Chrom_wd2 <- Chromatic_wd
+  Chrom_mn2[mean_ord] <- runif((N*ethnic_share*0.5), 0.8, 1.2)
+  Chrom_wd2[wide_ord] <- runif((N*ethnic_share*0.5), 0.8, 1.2)
+  
+  if(full_model == TRUE){
+    gap_chrom <- gap*0.2
+    gap_ed <- gap*0.1
+    beta_ed_gap <- model_par[1]-gap_ed
+    gap_level_pay <- gap*0.35
+    beta_paylevel_gap <- model_par[2] - gap_level_pay
+    beta[1:(extra_reg-add_extra + 1)] <- c(1,-abs(gap),beta_ed_gap, model_par[1], beta_paylevel_gap,
+                                       model_par[2])
+    beta <- c(beta[1:(extra_reg-add_extra)], gap_chrom, -gap_chrom, 
+              beta[(extra_reg-add_extra+1):length(beta)])
+    X <- cbind(rep(constant,N),Seph2,X[,1:4], Chrom_mn2, Chrom_wd2, X[,5:dim(X)[2]])
+  }else{
+    beta[c(1,2)] <- c(1,-abs(gap))
+    X <- cbind(rep(constant,N),Seph2,X)
+  }
+  Y <-  X%*%beta + err
+  
+  #Data Frame
+  X <- X[,-1]
+  if(full_model == TRUE){
+    
+    Education <- rep(0,N)
+    Education[Ed_ord] <- 1
+    Occupation <- rep(0,N)
+    Occupation[Occ_ord] <- 1
+    
+    X <- X[,-c(3, 5)]
+    X[,c("Seph2","Education_seph", 
+         "Occ_seph", "Chrom_mn2","Chrom_wd2")] <- cbind(Sephardic, Education, Occupation, 
+                                                        Chromatic_mn, Chromatic_wd)
+  }else{
+    X[,"Seph2"] <- Sephardic
+  }
+  colnames(X[,1:(p-1)]) <- paste0("Var", seq(from = 1, to = (p-1)))
+  data <- data.frame(Y,X)
+  colnames(data)[1] <- "Income"
+  colnames(data)[2] <- "Sephardic"
+  if(full_model == TRUE){
+    colnames(data)[3] <- "Education"
+    colnames(data)[4] <- "Occupation"
+    colnames(data)[5] <- "Chromatic within"
+    colnames(data)[6] <- "Chromatic outside"
+  }
+  output <- list("data" = data, "gap" = gap)
+  return(output)
+}
+
+```
+
+```{r echo=TRUE}
+
+#dgps
+set.seed(200)
+
+out1 <- dgp(N=1000, Mu=c(4.5,12), Sigma_grid=c(1,4.5), pshare=0.1, constant=20, 
+           beta_moments=c(2,1), sparsity=15, threshold = 4, varnoise=8, 
+            ethnic_share=0.5, rho=0.5, gap_percentage=0.07, interaction_grid= c(-0.4,0.1),
+            base_covar = TRUE, model_par = c(2,2),
+            full_model = TRUE, beta_decay = TRUE)
+dta1 <- out1$data
+dta_hist1 <- mutate(dta1, plot_eth = ifelse(Sephardic == 1, "Sephardic", "Ashkenazi"))
+
+out2 <- dgp(N=1000, Mu=c(4.5,12), Sigma_grid=c(1,4.5), pshare=0.1, constant=20, 
+            beta_moments=c(2,1), sparsity=15, threshold = 4, varnoise=8, 
+            ethnic_share=0.5, rho=0.5, gap_percentage=0.07, interaction_grid= c(-0.4,0.1),
+            base_covar = TRUE, model_par = c(2,2),
+            full_model = FALSE, beta_decay = TRUE)
+dta2 <- out2$data
+dta_hist2 <- mutate(dta2, plot_eth = ifelse(Sephardic == 1, "Sephardic", "Ashkenazi"))
+
+out3 <- dgp(N=1000, Mu=c(4.5,12), Sigma_grid=c(1,4.5), pshare=0.1, constant=20, 
+            beta_moments=c(2,1), sparsity=15, threshold = 4, varnoise=8, 
+            ethnic_share=0.5, rho=0.5, gap_percentage=0.07, interaction_grid= c(0,0),
+            base_covar = TRUE, model_par = c(2,2),
+            full_model = TRUE, beta_decay = TRUE)
+dta3 <- out3$data
+
+out4 <- dgp(N=1000, Mu=c(4.5,12), Sigma_grid=c(1,4.5), pshare=0.1, constant=20, 
+            beta_moments=c(2,1), sparsity=15, threshold = 4, varnoise=8, 
+            ethnic_share=0.5, rho=0.5, gap_percentage=0.07, interaction_grid= c(0,0),
+            base_covar = TRUE, model_par = c(2,2),
+            full_model = FALSE, beta_decay = TRUE)
+dta4 <- out4$data
+
+#Histogram
+Histogram1 <- ggplot(dta_hist1, aes(x = Income, fill = plot_eth)) + 
+  geom_histogram(binwidth = 3, position = "identity", alpha = 0.55, 
+  color = "black") + labs(x = "Income", y = "") + 
+  ggtitle("Full Model") + 
+  theme_bw() + theme(legend.position = "none") +  
+  theme(plot.title = element_text(hjust = 0.5))
+
+Histogram2 <- ggplot(dta_hist2, aes(x = Income, fill = plot_eth)) + 
+  geom_histogram(binwidth = 3, position = "identity", alpha = 0.55, 
+                 color = "black") + labs(x = "Income", y = "")  + 
+  ggtitle("Simple Model") + 
+  theme_bw() + theme(legend.title = element_blank()) +  
+  theme(plot.title = element_text(hjust = 0.5))
+
+Histo <- Histogram1 + Histogram2
+Histo <- Histo + plot_annotation(
+  title = "Figure 1: Income Historgram by Surname's Ethnicity",
+  theme = theme(plot.title = element_text(hjust = 0.5)))
+
+#Table
+
+gap_func <- function(data){
+  a <- subset(data, Sephardic == 1)
+  b <- subset(data, Sephardic == 0)
+  mna <- mean(a$Income)
+  mnb <- mean(b$Income)
+  return((mnb - mna)/mnb)
+}
+
+#Ethnic Gap
+simple_gap_noint <- gap_func(dta4)
+simple_gap_int <- gap_func(dta2)
+simple_share <- sum(dta2$Sephardic)/1000
+full_gap_noint <- gap_func(dta3)
+full_gap_int <- gap_func(dta1)
+full_share <- sum(dta1$Sephardic)/1000
+eth_gap <- data.frame(rbind(c(full_gap_noint, full_gap_int, full_share),
+                            c(simple_gap_noint, simple_gap_int, simple_share)),
+                      row.names = c("Full", "Simple"))
+colnames(eth_gap) <- c("No Interactions", "Interactions", "Sephardic Share")
+
+#Ed yes
+gap_ed_yes_noint <- gap_func(subset(dta3, Education == 1))
+gap_ed_yes_int <- gap_func(subset(dta1, Education == 1))
+ed_yes_share <- sum(subset(dta1, Education == 1)$Sephardic)/(dim(subset(dta1, Education == 1))[1])
+#ED no
+gap_ed_no_noint <- gap_func(subset(dta3, Education == 0))
+gap_ed_no_int <- gap_func(subset(dta1, Education == 0))
+ed_no_share <- sum(subset(dta1, Education == 0)$Sephardic)/(dim(subset(dta1, Education == 0))[1])
+
+#Occ yes
+gap_occ_yes_noint <- gap_func(subset(dta3, Occupation == 1))
+gap_occ_yes_int <- gap_func(subset(dta1, Occupation == 1))
+occ_yes_share <- sum(subset(dta1, Occupation == 1)$Sephardic)/(dim(subset(dta1, Occupation == 1))[1])
+#Occ no
+gap_occ_no_noint <- gap_func(subset(dta3, Education == 0))
+gap_occ_no_int <- gap_func(subset(dta1, Education == 0))
+occ_no_share <- sum(subset(dta1, Occupation == 0)$Sephardic)/(dim(subset(dta1, Occupation == 0))[1])
+
+full_gap <- data.frame(rbind(c(gap_ed_yes_noint, gap_ed_yes_int, ed_yes_share),
+                             c(gap_ed_no_noint, gap_ed_no_int, ed_no_share),
+                             c(gap_occ_yes_noint, gap_occ_yes_int, occ_yes_share),
+                             c(gap_occ_no_noint, gap_occ_no_int, occ_no_share)),
+                       row.names = (c("High Education", "Low Education", 
+                                   "High Occupation", "Low Occupation")))
+colnames(full_gap) <- c("No Interactions", "Interactions", "Sephardic Share")
+```
+
+In figure 1 one can hence see two histograms, where I plot the distribution of Income by each Ethnic group. The left panel displays the case of the full model that includes a variable on *Education*, *Occupation*, the *Within Chromatic Scale* and *Outside Chromatic Scale*. On the contrary, the right panel, displays the case where these variables are not included and thus the data is generated by the covariates and *betas* described above, where the only fully determined variable and its coefficient is that of the Ethincity. Both cases are generated while including interactions between randomly chosen covariates and the *Ethnicity* variable, and therefore, while noticeable, the wage gap does not seem as starkly portrayed as it would be the case where the interactions are centered around 0 or there are none. In this case, the interactions are of the range [-0.4, 0.1], which means that for randomly chosen covariates, its values are reduced (increased) by the multiplication of a random number in the given range, with the corresponding mean, that was used to generate the covariates in the first place. It can be best described by $X_{i,c}^{Interacted} = X_{i,c} + \mu_c * Interaction$, with $c \in (j,k,l)$.
+
+We can further see what this means in table 1 and 2. Table 1 shows that with no interactions, the gap, when measured by a sole mean difference between ethnic groups, lies quite close to the predetermined exogenous gap in the data generating process, which amounts to 7 percentage points, with and without the full model. On the contrary, the second column of the table shows that when generated with interactions of the range [-0.4, 0.1], the measured gap is reduced in both cases, while there is a stark difference between the model specifications. When generated with the simple model, the data shows to have a mean gap of around 1.5 percentage points, while when with the full model of 3.8 percentage points. This indicates that the interactions mask the real extent of the wage gap and that this is different when used in different model specifications. 
+
+```{r echo=TRUE, fig.height=3.5, fig.width=7, fig.align="center"}
+Histo
+```
+
+
+```{r echo = TRUE}
+eth_gap %>%
+  kbl(caption = "Table 1: Gap by Interaction and Model Specification") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+Moreover, table 2 solely concentrates on the full model specification and shows what the extent of the gap is when looking into specific groups of the simulated data. As in table 1, interactions mask the gap and reduce the gap when measured by mean comparisons. Further however, the data shows that gaps are different by types of education and by types of occupation. Here, Chromatic variables are not included, as they only affect observations indicated to be Sephardic as in [@Rubinstein_2013]. Following this paper as well, the data shows that although more *individuals* of perceived Sephardic ethnicity have higher education, the gap is the biggest within this group. This contradiction is also noticeable when looking at the Occupation variable, as the share of observations with perceived Sephardic ethnicity is bigger when looking at *Low Occupation*, where the gap is the smallest when compared to the case with observations in *High Occupation*.
+
+```{r echo = TRUE}
+full_gap %>%
+  kbl(caption = "Table 2: Gap by Variable and Interaction with Full model specification") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+These divisions follow the descriptive statistics of [@Rubinstein_2013] and thus allow me to approach a simluation exercise that resembles the empirical application of the paper. 
+
+
+### 3.2 Simulation
+
+```{r simulation, echo=TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+sim <- function(reps, N, Mu, Sigma_grid, pshare, constant, beta_moments, sparsity_grid, 
+                sparsity_steps, threshold = 0, varnoise, ethnic_share, rho,
+                gap_percentage, interaction_grid, base_covar = FALSE, model_par = 0,
+                full_model = FALSE, beta_decay = FALSE){
+  
+  #Defining Sparsity Sequence
+  spar_grd <- seq(sparsity_grid[1], sparsity_grid[2], sparsity_steps)
+  len_spgrid <- length(spar_grd)
+  
+  #Empty Vectors
+  gap.cv.lasso <- rep(NA, reps*len_spgrid)
+  mse.cv.lasso <- rep(NA, reps*len_spgrid)
+  gap.plasso <- rep(NA, reps*len_spgrid)
+  mse.plasso <- rep(NA, reps*len_spgrid)
+  gap.pdslasso <- rep(NA, reps*len_spgrid)
+  mse.pdslasso <- rep(NA, reps*len_spgrid)
+  gap.ols <- rep(NA, reps*len_spgrid)
+  mse.ols <- rep(NA, reps*len_spgrid)
+  
+  for(j in 1:len_spgrid){
+
+    for(i in 1:reps){
+    
+      dgp_out <- dgp(N=N, Mu=Mu, Sigma_grid=Sigma_grid, pshare=pshare, constant=constant, 
+               beta_moments=beta_moments, sparsity=spar_grd[j], threshold = threshold, 
+               varnoise=varnoise, ethnic_share=ethnic_share, rho=rho, 
+               gap_percentage=gap_percentage, 
+               interaction_grid=interaction_grid, base_covar = base_covar, 
+               model_par = model_par, full_model = full_model, beta_decay = beta_decay)
+    
+      dta <- dgp_out$data
+      gap <- dgp_out$gap
+    
+      #Setting up training and test data
+      train <- sample(nrow(dta), nrow(dta)/2)
+      Y.train <- dta[train,1]
+      X.train <- dta[train,-1]
+      Y.test <- dta[-train,1]
+      X.test <- dta[-train,-1]
+
+      #Lasso
+      cv.lasso   <- cv.glmnet(data.matrix(X.train), data.matrix(Y.train), alpha = 1)
+      cv.lasso.fit <- glmnet(data.matrix(X.train), data.matrix(Y.train), alpha = 1, lambda = cv.lasso$lambda.min)
+      cv.lasso.pred <- predict(cv.lasso.fit, newx = data.matrix(X.test))
+    
+      gap.cv.lasso[(reps*(j-1))+i] <- mean((abs(cv.lasso.fit$beta[1]) - gap)^2)
+      mse.cv.lasso[(reps*(j-1))+i] <- mean((cv.lasso.pred - Y.test)^2)
+    
+      #Post-Lasso
+      plasso <- rlasso(formula = Y.train ~ data.matrix(X.train), post = TRUE)
+      plasso.pred <- predict(plasso, newdata = data.matrix(X.test))
+
+      gap.plasso[(reps*(j-1))+i] <- mean((abs(plasso$coefficients[2]) - gap)^2)
+      mse.plasso[(reps*(j-1))+i] <- mean((plasso.pred - Y.test)^2)
+    
+      #Post-Double-Lasso
+    
+      pdlasso <- rlassoEffects(data.matrix(X.train), Y.train, index = c(1), method = "double selection", post = TRUE)
+      pdselection <- which(pdlasso$selection.matrix == TRUE)
+      pdselection <- c(c(1,2),pdselection)
+      pdbeta <- rep(0,round(N*pshare)) 
+      pdbeta[pdselection] <- as.numeric(pdlasso$coef.mat[[1]])
+      if(sum(is.na(pdbeta)) > 0){
+        naidx <- which(is.na(pdbeta))
+        pdbeta[naidx] <- 0
+      }
+      X.test.pd <- cbind(rep(1,dim(X.test)[1]), X.test)
+      pdlasso.pred <- data.matrix(X.test.pd) %*% pdbeta
+    
+      gap.pdslasso[(reps*(j-1))+i] <- mean((abs(as.double(pdlasso$coefficients[1])) - gap)^2)
+      mse.pdslasso[(reps*(j-1))+i] <- mean((pdlasso.pred - Y.test)^2)
+
+      #OLS
+      ols <- lm(Y.train ~ as.matrix(X.train))
+      ols.pred <- predict(ols)
+    
+      gap.ols[(reps*(j-1))+i] <- mean((abs(ols$coefficients[2]) - gap)^2)
+      mse.ols[(reps*(j-1))+i] <- mean((ols.pred - Y.test)^2)
+    }
+  }
+  
+  if(full_model == TRUE){
+    extra_reg <- 8
+    add_extra <- 3
+  }else{
+    extra_reg <- 1
+    add_extra <- 0
+  }
+
+  #p <- round(N*pshare)
+  #spar_p <- p - extra_reg + add_extra
+  spar_col <- rep(NA, len_spgrid*reps)
+  for(i in 1:len_spgrid){
+    #spar_col[(reps*(i-1)+(1:reps))] <- rep(round(spar_grd[i]*spar_p)+extra_reg-add_extra, reps)
+    spar_col[(reps*(i-1)+(1:reps))] <- rep(spar_grd[i], reps)
+  }
+  
+  mse <- cbind(mse.ols, mse.cv.lasso, mse.plasso, mse.pdslasso, spar_col)
+  colnames(mse) <- c("OLS", "CV Lasso", "Post-Lasso", "Post-Double-Lasso", "Sparcity")
+  gap <- cbind(gap.ols, gap.cv.lasso, gap.plasso, gap.pdslasso, spar_col)
+  colnames(gap) <- c("OLS", "CV Lasso", "Post-Lasso", "Post-Double-Lasso", "Sparcity")
+  mean.mse <- colMeans(mse)
+  mean.gap <- colMeans(gap)
+  
+  mse_df <- data.frame(rbind(cbind(mse[,1], rep("OLS", reps)),
+                             cbind(mse[,2], rep("CV Lasso", reps)),
+                             cbind(mse[,3], rep("Post-Lasso", reps)),
+                             cbind(mse[,4], rep("Post-Double-Lasso", reps))))
+  mse_df[,1] <- as.double(mse_df[,1])
+  rownames(mse_df) <- NULL
+  colnames(mse_df) <- c("MSE", "Method")
+  
+  gap_df <- data.frame(rbind(cbind(gap[,1], rep("OLS", reps)),
+                             cbind(gap[,2], rep("CV Lasso", reps)),
+                             cbind(gap[,3], rep("Post-Lasso", reps)),
+                             cbind(gap[,4], rep("Post-Double-Lasso", reps))))
+  gap_df[,1] <- as.double(gap_df[,1])
+  rownames(gap_df) <- NULL
+  colnames(gap_df) <- c("MSE", "Method")
+  
+  boxplot_y <- ggplot(mse_df, aes(x = Method, y = MSE, fill = Method)) +
+    geom_boxplot() + scale_fill_viridis(discrete = TRUE, alpha = 0.6) +
+    theme_bw() + theme(legend.position = "none", 
+                       axis.text.x = element_text(), plot.title = element_text(hjust = 0.5, size = 14)) +
+    ggtitle( "MSE by Method") 
+  
+  boxplot_gap <- ggplot(gap_df, aes(x = Method, y = MSE, fill = Method)) +
+    geom_boxplot() + scale_fill_viridis(discrete = TRUE, alpha = 0.6) +
+    theme_bw() + theme(legend.position = "none", 
+                       axis.text.x = element_text(), plot.title = element_text(hjust = 0.5, size = 14)) +
+    ggtitle( "MSE Wage Gap by Method") 
+  
+  
+  if(len_spgrid > 1){
+    
+    subs_mse <- unique(mse[,5])
+    subs_gap <- unique(gap[,5])
+    spar_mse <- c()
+    spar_gap <- c()
+    for(i in 1:length(subs_mse)){
+      a <- subset(mse, mse[,5] == subs_mse[i])
+      b <- subset(gap, gap[,5] == subs_gap[i])
+      spar_mse <- rbind(spar_mse, colMeans(a))
+      spar_gap <- rbind(spar_gap, colMeans(b))
+    }
+    colnames(spar_mn) <- colnames(mses)
+    
+    mse_spar <- data.frame(spar_mse)
+    mse_spar <- mse_spar %>% gather(key, value, -c(Sparcity))
+    mse_pred_spar <- ggplot(as.data.frame(mse_spar), aes(Sparcity)) +
+      geom_line(aes(y = value, group = key, colour = key)) + theme_bw() + 
+      theme(plot.title = element_text(hjust = 0.5),legend.text = element_text(size = 9)) + 
+      labs(y = "MSE", color = "Method") + xlim(c(sparsity_grid[1],sparsity_grid[2])) + 
+      ggtitle("MSE by Method and Sparcity")
+    
+    gap_spar <- data.frame(spar_gap)
+    gap_spar <- gap_spar %>% gather(key, value, -c(Sparcity))
+    mse_gap_spar <- ggplot(as.data.frame(gap_spar), aes(Sparcity)) +
+      geom_line(aes(y = value, group = key, colour = key)) + theme_bw() + 
+      theme(plot.title = element_text(hjust = 0.5),legend.text = element_text(size = 9)) + 
+      labs(y = "MSE", color = "Method") + xlim(c(sparsity_grid[1],sparsity_grid[2])) + 
+      ggtitle("Gap MSE by Method and Sparcity")
+    
+    
+    
+    output <- list("MSE"=mse, "Gap"=gap, "Sparcity_MSE"=spar_mse,
+                   "Sparcity_Gap"=spar_gap, "Mean_MSE"=mean.mse, 
+                   "Mean_Gap"=mean.gap, "MSE_plot"=boxplot_y, 
+                   "MSE_gap_plot"=boxplot_gap, "MSE_Spar_plot"=mse_pred_spar,
+                   "MSE_Gap_Spar_Plot"=mse_gap_spar)
+  }else{
+    output <- list("MSE"=mse, "Gap"=gap, "Mean_MSE"=mean.mse, "Mean_Gap"=mean.gap,
+                   "MSE_plot"=boxplot_y, "MSE_gap_plot"=boxplot_gap)
+  }
+  return(output)
+  
+}
+```
+
+
+```{r eval=FALSE, echo=T}
+
+set.seed(200)
+
+sim1 <- sim(reps=500, N=1000, Mu=c(4.5,12), Sigma_grid=c(1,1), pshare=0.1, constant=20, 
+            beta_moments=c(3,1), sparsity_grid=c(10, 22), sparsity_steps = 1,
+            threshold = 4, varnoise=8, ethnic_share=0.5, rho=0.5, 
+            gap_percentage=0.07, interaction_grid= c(-0.2,0.2), base_covar = TRUE, 
+            model_par = c(2,2), full_model = FALSE, beta_decay = TRUE)
+
+sim2 <- sim(reps=500, N=1000, Mu=c(4.5,12), Sigma_grid=c(1,4.5), pshare=0.1, constant=20, 
+            beta_moments=c(3,1), sparsity_grid=c(10, 22), sparsity_steps = 1,
+            threshold = 4, varnoise=8, ethnic_share=0.5, rho=0.5, 
+            gap_percentage=0.07, interaction_grid= c(-0.2,0.2), base_covar = FALSE, 
+            model_par = c(2,2), full_model = FALSE, beta_decay = TRUE)
+
+sim3 <- sim(reps=500, N=1000, Mu=c(4.5,12), Sigma_grid=c(1,4.5), pshare=0.1, constant=20, 
+            beta_moments=c(3,1), sparsity_grid=c(10, 22), sparsity_steps = 1,
+            threshold = 4, varnoise=8, ethnic_share=0.5, rho=0.5, 
+            gap_percentage=0.07, interaction_grid= c(-0.2,0.2), base_covar = FALSE, 
+            model_par = c(2,2), full_model = TRUE, beta_decay = TRUE)
+
+sim4 <- sim(reps=500, N=1000, Mu=c(4.5,12), Sigma_grid=c(1,4.5), pshare=0.1, constant=20, 
+            beta_moments=c(3,1), sparsity_grid=c(10, 22), sparsity_steps = 1,
+            threshold = 4, varnoise=8, ethnic_share=0.5, rho=0.5, 
+            gap_percentage=0.07, interaction_grid= c(-0.4,0.1), base_covar = FALSE, 
+            model_par = c(2,2), full_model = TRUE, beta_decay = TRUE)
+```
+
+```{r eval=FALSE, echo=TRUE}
+
+set.seed(200)
+
+sim5_1 <- sim(reps=500, N=2000, Mu=c(4.5,12), Sigma_grid=c(1,4.5), pshare=0.0125, constant=20, 
+              beta_moments=c(3,1), sparsity_grid=c(6, 25), sparsity_steps = 1,
+              threshold = 4, varnoise=8, ethnic_share=0.5, rho=0.5, 
+              gap_percentage=0.07, interaction_grid= c(-0.4,0.1), base_covar = FALSE, 
+              model_par = c(2,2), full_model = TRUE, beta_decay = TRUE)
+
+sim5_2 <- sim(reps=500, N=2000, Mu=c(4.5,12), Sigma_grid=c(1,4.5), pshare=0.025, constant=20, 
+            beta_moments=c(3,1), sparsity_grid=c(6, 31), sparsity_steps = 1,
+            threshold = 4, varnoise=8, ethnic_share=0.5, rho=0.5, 
+            gap_percentage=0.07, interaction_grid= c(-0.4,0.1), base_covar = FALSE, 
+            model_par = c(2,2), full_model = TRUE, beta_decay = TRUE)
+
+sim5_3 <- sim(reps=500, N=2000, Mu=c(4.5,12), Sigma_grid=c(1,4.5), pshare=0.05, constant=20, 
+              beta_moments=c(3,1), sparsity_grid=c(6, 31), sparsity_steps = 1,
+              threshold = 4, varnoise=8, ethnic_share=0.5, rho=0.5, 
+              gap_percentage=0.07, interaction_grid= c(-0.4,0.1), base_covar = FALSE, 
+              model_par = c(2,2), full_model = TRUE, beta_decay = TRUE)
+
+sim5_4 <- sim(reps=500, N=2000, Mu=c(4.5,12), Sigma_grid=c(1,4.5), pshare=0.075, constant=20, 
+              beta_moments=c(3,1), sparsity_grid=c(6, 31), sparsity_steps = 1,
+              threshold = 4, varnoise=8, ethnic_share=0.5, rho=0.5, 
+              gap_percentage=0.07, interaction_grid= c(-0.4,0.1), base_covar = FALSE, 
+              model_par = c(2,2), full_model = TRUE, beta_decay = TRUE)
+
+sim5_5 <- sim(reps=500, N=2000, Mu=c(4.5,12), Sigma_grid=c(1,4.5), pshare=0.1, constant=20, 
+              beta_moments=c(3,1), sparsity_grid=c(6, 31), sparsity_steps = 1,
+              threshold = 4, varnoise=8, ethnic_share=0.5, rho=0.5, 
+              gap_percentage=0.07, interaction_grid= c(-0.4,0.1), base_covar = FALSE, 
+              model_par = c(2,2), full_model = TRUE, beta_decay = TRUE)
+```
+
+
+To start with, the idea of this simulation is to confront the methodology with a setting that emulates the one seen in [@Rubinstein_2013]. The first simulation therefore presents a simple case where the model applied for data generation is that of equation 10. Here, the covariance matrix is of the form as seen below, where the the matrix has a diagonal of length $p$ where the diagonal vector is solely composed of 1's, while all off-diagonal elements are set to 0. 
+
+
+\begin{bmatrix}
+1    & 0    & 0 & \cdots & 0 \\
+0   & 1    & 0 & \cdots & 0 \\
+0  &0    & 1    & \cdots & 0. \\
+\vdots & \vdots   &\vdots  &  &\vdots \\
+0    & 0 & 0 & \cdots &1 \\
+\end{bmatrix} 
+
+
+The simulation therefore contends a simple case where the gap is generated by the penalty induced by the ethnicity variable and the random interaction of the same with other covariates. Here, due to the form of the matrix, there is no correlation.
+
+Furthermore, up from the second simulation onwards, the covariance matrix takes the form of a Toeplitz matrix as seen below. 
+
+
+\begin{bmatrix}
+4.5    & 0.5    & 0.25 & \cdots & 0.5^p \\
+0.5   & 7    & 0.5 & \cdots & 0.5^{p-1} \\
+0.25  &0.5    & 10    & \cdots & 0.5^{p-2} \\
+\vdots & \vdots   &\vdots  &  &\vdots \\
+0.5^p    & 0.5^{p-1} & 0.5^{p-2} & \cdots &13.4 \\
+\end{bmatrix} 
+
+
+I choose this type of matrix, as it enables to establish a base among all simulations besides the first. It is a positive definitive matrix, making it useful for the generation of covariates, while the correlations it induces are based on a
+clear procedure as seen on all off-diagonals, that bases itself on the choice of the parameter $\rho$; for the simulations it has a value of 0.5. Besides this, it has been used in simulations related to the topic of this project. [@Spindler_2015] uses it as can be seen in the codes provided with the paper, just as it is used in [@bach_2018b], as can be seen in codes that were kindly shared with me. 
+
+Table 3 shows that each simulation is ran 500 times and that in 1-4 observations amount to 1000, while 5 has 2000. This means that each, the test and training data, will have half the size of the Observations indicated in the Simulation function. The specified data generating process is generated for different sparsity values every single repetition. Specifically, I have set these values to correspond to the range [10,22] for simulations 1-4 and [6,31] for simulation 5, where steps between values are of 1. I choose these sparcity levels as the restriction $s^2 << n$ only allows me to generate a model up to a sparsity of 22 for 1-4 and of 31 for simulation 5. When $p = 25$ in simulation 5, then sparsity only goes up to 25 since this already corresponds to full model specification.
+
+
+```{r echo=TRUE}
+table3 <- data.frame(rbind(c("1000", "[1,1]", "100", "[10,22]", "0.07", "[-0.2, 0.2]", "No", "No"),
+                c("1000", "[1,4.5]", "100", "[10,22]", "0.07", "[-0.2, 0.2]", "No", "Yes"),
+                c("1000", "[1,4.5]", "100", "[10,22]", "0.07", "[-0.2, 0.2]", "Yes", "Yes"),
+                c("1000", "[1,4.5]", "100", "[10,22]", "0.07", "[-0.4, 0.1]", "Yes", "Yes"),
+                c("2000", "[1,4.5]", "[25,50,100,150,200]", "[6,31]", "0.07", "[-0.4, 0.1]", "Yes", "Yes")),
+                row.names = c("Simulation 1", "Simulation 2", "Simulation 3", "Simulation 4", "Simulation 5"))
+colnames(table3) <- c("N", "Sigma Range", "p", "Sparsity Range", "Gap", "Interaction Range", "Full Model", "Toeplitz")
+table3 %>%
+  kbl(caption = "Table 3: Simulations Specifications") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+
+```
+
+
+The results from the first four simulations can be found in table 4 . We can see that in case of the capacity to predict Income, the PDS-LASSO renders the highest MSE's, which however is explained by the fact that the data-driven process determining the penalization parameter is suboptimal for such endeavours as expressed in [@belloni_2012]. The authors of this papers stress the fact that this process is fitted to render the best results when it comes to making inference on an indicated parameter. Therefore, turning to the MSE rendered in terms of the wage gap should give the best results when using the methodology. 
+
+```{r eval=FALSE, echo=TRUE}
+
+  table4 <- data.frame(rbind(sim1$Mean_MSE[-5], sim2$Mean_MSE[-5], sim3$Mean_MSE[-5], sim4$Mean_MSE[-5]), row.names = c("Simulation 1", "Simulation 2", "Simulation 3", "Simulation 4"))
+colnames(table4) <- c("OLS", "CV Lasso", "Post-Lasso", "Post-Double-Lasso")
+table4 %>%
+  kbl(caption = "Table 4: Sparcity Average - MSE by Simulation") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+```
+
+```{r echo=FALSE}
+table4 <- data.frame(rbind(c(362.5855, 16.79343, 16.33596, 748.9894),
+                c(548.7264, 16.81070, 16.32383, 825.2711),
+                c(455.0272, 24.77705, 24.45018, 714.9881),
+                c(390.1565, 24.94817, 25.03462, 726.6943)), 
+                row.names = c("Simulation 1", "Simulation 2",
+                              "Simulation 3", "Simulation 4"))
+colnames(table4) <- c("OLS", "CV Lasso", "Post-Lasso", "Post-Double-Lasso")
+table4 %>%
+  kbl(caption = "Table 4: Sparcity Average - MSE by Simulation") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+
+Table 5 demonstrates that, somewhat differently to Table 4, reported Errors for the Wage Gap when using the PDS-LASSO are the lowest in Simulation 3 and the third-lowest in Simulation 1 and 2; they are the worst for simulation 4. The Gap MSE is measured by the difference between the actual predetermined gap and the coefficient inferred by a specific method. I specifically compare the measured coefficient when running the methodology over the training data. 
+in simulations 1-3 the interactions are centered around 0, where therefore this masks the wage gap in a reduced manner. Here, however, the main difference between simulation 3 and 2 is that the former introduces the full model specification. This would indicate that when a single variable explains the wage gap and there is a reduced *masking*, the PDS-LASSO does not fare as good as other methodologies. This is rather unproblematic, as in terms of empirics this an almost impossible case. Intuition would thus then indicate that when masking the gap more, the methodology should improve its capabilities when compared with others. Simulation 4 does this, but demonstrates the contrary. I therefore turn to simulation 5, where I explore more in depth the effect of the size of $p$.
+
+```{r eval=FALSE, echo=TRUE}
+  
+table5 <- data.frame(rbind(sim1$Mean_Gap[-5], sim2$Mean_Gap[-5], sim3$Mean_Gap[-5], sim4$Mean_Gap[-5]), row.names = c("Simulation 1", "Simulation 2", "Simulation 3", "Simulation 4"))
+colnames(table5) <- c("OLS", "CV Lasso", "Post-Lasso", "Post-Double-Lasso")
+table5 %>%
+  kbl(caption = "Table 5: Sparcity Average - Gap MSE by Simulation") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+```
+
+```{r echo=FALSE}
+table5 <- data.frame(rbind(c(0.1522254, 0.2969297, 0.1278691, 0.2606619),
+                c(0.1504763, 0.2682892, 0.1286656, 0.2560099),
+                c(0.9138539, 0.8415996, 0.8374756, 0.8101567),
+                c(1.6008839, 1.8051973, 1.0719341, 2.1321177)),
+                row.names = c("Simulation 1", "Simulation 2",
+                              "Simulation 3", "Simulation 4"))
+colnames(table5) <- c("OLS", "CV Lasso", "Post-Lasso", "Post-Double-Lasso")
+table5 %>%
+  kbl(caption = "Table 5: Sparcity Average - Gap MSE by Simulation") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+
+Figure 2 displays the MSE's of the 4 chosen methodologies in simulation 5, where we can see that, as described, the function shows the errors for different values of Sparsity, and that every single panel does so for a different choice of $p$. By that, it is quite easy to see that the PDS-LASSO renders better results the smaller the choice of $p$ and when the sparsity lies within the range [10,20], although this is the case for all methodologies. Furthermore, it is possible to observe as well that the higher the $p$ the higher the MSE's across methodologies, while with the given data generating process, the post-LASSO and CV-LASSO give bthe best results when confronted with cases of very high dimensionality.
+
+Now, turning to table 6, we can see that these observations hold when looking at the values of the errors by method. As explained above, the first row has different sparsity values. Beyond this however, the PDS-LASSO solely appears to be the best methodology when the size of $p$ lies below 50, while afterwards the Post-LASSO renders the best overall results. For section 4 this means that, the methodology does outperform OLS regressions and that, if the sparsity of the model lies at more reduced values, when in comparison to the size of $N$, the PDS-LASSO should improve results.
+
+```{r eval=FALSE, echo=TRUE}
+ 
+a_5_1 <- as.data.frame(sim5_1$Sparcity_Gap) %>% gather(key, value, -c(Sparcity))
+a_5_2 <- as.data.frame(sim5_2$Sparcity_Gap) %>% gather(key, value, -c(Sparcity))
+a_5_3 <- as.data.frame(sim5_3$Sparcity_Gap) %>% gather(key, value, -c(Sparcity))
+a_5_4 <- as.data.frame(sim5_4$Sparcity_Gap) %>% gather(key, value, -c(Sparcity))
+a_5_5 <- as.data.frame(sim5_5$Sparcity_Gap) %>% gather(key, value, -c(Sparcity))
+  
+gap_5_1 <- ggplot(as.data.frame(a_5_1), aes(Sparcity)) +
+  geom_line(aes(y = value, group = key, colour = key)) + theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5, size = 8), legend.position = "none") + 
+  labs(y = "MSE", color = "Method") + xlim(c(6,25)) + ylim(c(0,4)) +
+  ggtitle("p = 25")
+
+gap_5_2 <- ggplot(as.data.frame(a_5_2), aes(Sparcity)) +
+  geom_line(aes(y = value, group = key, colour = key)) + theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5, size = 5), legend.position = "none") + 
+  labs(y = "MSE", color = "Method") + xlim(c(6,31)) + 
+  ggtitle("p = 50")
+
+gap_5_3 <- ggplot(as.data.frame(a_5_3), aes(Sparcity)) +
+  geom_line(aes(y = value, group = key, colour = key)) + theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5, size = 5), legend.position = "none") + 
+  labs(y = "", color = "Method") + xlim(c(6,31)) + 
+  ggtitle("p = 100")
+
+gap_5_4 <- ggplot(as.data.frame(a_5_4), aes(Sparcity)) +
+  geom_line(aes(y = value, group = key, colour = key)) + theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5, size = 5), legend.position = "none") + 
+  labs(y = "MSE", color = "Method") + xlim(c(6,31)) + 
+  ggtitle("p = 150")
+
+gap_5_5 <- ggplot(as.data.frame(a_5_5), aes(Sparcity)) +
+  geom_line(aes(y = value, group = key, colour = key)) + theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5, size = 5), legend.position = "none") + 
+  labs(y = "", color = "Method") + xlim(c(6,31)) + 
+  ggtitle("p = 200")
+
+gap_5 <- ((gap_5_1)/(gap_5_2 + gap_5_3)/(gap_5_4 + gap_5_5))+ 
+  plot_layout(guides = "collect") +
+  plot_annotation(title = "Figure 2: Simulation 5 - Gap MSE by Method and Sparcity") &
+  theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5, size = 12)) 
+
+gap_5
+```
+
+
+<p align="center">
+    <img src="Sim5.png">
+    
+    
+```{r eval=FALSE, echo=TRUE}
+table6 <- data.frame(cbind(c(25,50,100,150,200),
+                           rbind(round(sim5_1_dat$Mean_Gap[-5],6),
+                                 round(sim5_2_dat$Mean_Gap[-5],6),
+                                 round(sim5_3_dat$Mean_Gap[-5],6), 
+                                 round(sim5_4_dat$Mean_Gap[-5],6),
+                                 round(sim5_5_dat$Mean_Gap[-5],6)), 
+                           c("[6,25]", "[6,31]", "[6,31]", "[6,31]", "[6,31]")))
+colnames(table6) <- c("p", "OLS", "CV Lasso", "Post-Lasso", "Post-Double-Lasso", "Sparsity")
+
+
+table6 %>%
+  kbl(caption = "Table 6: Simulation 5, Sparsity average - Gap MSE by Method") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+
+```{r echo = FALSE}
+table6 <- data.frame(cbind(rbind(c(25, 2.074304, 1.702395, 1.559250, 1.390601),
+                c(50, 2.049127, 1.693442, 1.560767, 1.354241),
+                c(100, 2.459141, 1.450060, 1.313862, 1.412565),
+                c(150, 2.757569, 1.633045, 1.282605, 2.033548),
+                c(200, 3.142531, 2.049225, 1.286991, 2.760035)), 
+                c("[6,25]", "[6,31]", "[6,31]", "[6,31]", "[6,31]")))
+colnames(table6) <- c("p", "OLS", "CV Lasso", "Post-Lasso", "Post-Double-Lasso", "Sparsity")
+
+table6 %>%
+  kbl(caption = "Table 6: Simulation 5, Sparsity average - Gap MSE by Method") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+It is important to note here that unlike the simulations ran in [@belloni_2014b] and [@bach_2018b], my data generating process contends considerably more sparse models that near the border of the restriction $s^2 << n$ mentioned in section 2. Besides this, their whole vector of *betas* within the process is generated by a decay of the form I include as well, only that in my case this procedure only corresponds to a subset of the *betas*. I will shortly discuss the interpretation of this in Section 5.  
+
+
+## 4. Empirical Application
+
+Now that the simulations have been run, I can turn to the empirical application of the methodology with the data of [@Rubinstein_2013]. It would have been much more informative to work with the data that was used to produce the main tables of the paper, however it is currently not available. The Journal website gives access to supplementary files which in principle contains said data, nevertheless, the zip file containing it is corrupt. Consequently, I apply the method on different data, namely that of the Web Appendix of the same paper.
+
+In previous sections the aim of the paper, just as its approach has been loosely described; I turn to this now. [@Rubinstein_2013] investigate the extent of the ethnic wage gap in Israel. They do this by exploiting the fact that there is and has historically been a differential treatment for individuals of Ashkenazi origin, when in comparison to those of Sephardic origin. The former are mostly of *European* origin, while the latter of *Middle Eastern and Asian*. Israeli society and labor market have penalized being Sephardic, or at least appearing to be. It is exactly the last description that the authors use to undergo their analysis. They argue that when comparing individuals whose last name is of Sephardic origin with those of Ashkenazi origin, but that were born to a mixed-ethnic parental union, they will be able to infer the degree of *discrimination* that dominates the labor market. The logic for this is straightforward. If individuals that only difer in their last name are differentially treated by the labor market, then their wage gap measure will approach the true value of the wage penalty. 
+
+In the paper, the authors recognize that given societal norms in terms of gender and tradition, an individual born to a mixed union where the father is of Ashkenazi origin and the mother of Sephardic is likely to be fundamentally different to another individual whose parents origin are exactly the opposite. They investigate this by Summary statistics and find that if anything, characteristics of individuals whose father is of Sephardic origin and mother of Ashkenazi (SA) appear to indicate that they should outearn peers whose father is of Ashkenazi origin and mother of Sephardic (AS). when looking at wages however, this is not the case, which indicates that appearing to be of Askenazi origin through a corresponding last name is rewarded by the economy. 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+tab3 <- read_dta("data/Final/tablew3.dta")
+tab3_2 <- subset(tab3, (age >= 30) & (age <= 55))
+
+#regressions
+t3X_1 <- model.matrix( ~ 1 + AA + SA + SS, data=tab3)
+tol <- 10^-5
+t3X_1 <- t3X_1[,which(apply(t3X_1, 2, var)>tol)]
+w3_1 <- rlassoEffects(x = t3X_1, y = tab3$lhrly, index = c(1,2,3), method = "double selection", post = TRUE)
+p_w3_1 <- p_adjust(w3_1)
+
+t3X_2 <- model.matrix( ~ 1 + AA + SA + SS + HSD_1_4 + HSD_5_8 + HSD_9_11 + 
+                         HSG + HSGBAG + POSTSEC + BA + AD + exp + exp2 + exp3 +
+                         exp4, data = tab3)
+tol <- 10^-5
+t3X_2 <- t3X_2[,which(apply(t3X_2, 2, var)>tol)]
+w3_2 <- rlassoEffects(x = t3X_2, y = tab3$lhrly, index = c(1,2,3), method = "double selection", post = TRUE)
+p_w3_2 <- p_adjust(w3_2)
+
+t3X_3 <- model.matrix(~ 1 + AA + SA + SS + HSD_1_4 + HSD_5_8 + HSD_9_11 + 
+                        HSG + HSGBAG + POSTSEC + BA + AD + exp + exp2 + exp3 +
+                        exp4 + localityDUM1 + localityDUM2 + localityDUM3 + 
+                        localityDUM4 + localityDUM5 + localityDUM6 + 
+                        localityDUM7 + localityDUM8 + localityDUM9 + RbranchDUM1 + 
+                        RbranchDUM2 + RbranchDUM3 + RbranchDUM4 + RbranchDUM5 + 
+                        RbranchDUM6 + RbranchDUM7 + RbranchDUM8 + RbranchDUM9 + 
+                        RbranchDUM10 + RbranchDUM11 + RbranchDUM12 + RbranchDUM13 + 
+                        RbranchDUM14 + RbranchDUM15 + RbranchDUM16 + RbranchDUM17 + 
+                        RbranchDUM18 + RbranchDUM19 + RbranchDUM20 + RbranchDUM21 + 
+                        RbranchDUM22 + RbranchDUM23 + RbranchDUM24 + RbranchDUM25 + 
+                        RbranchDUM26 + RbranchDUM27 + RbranchDUM28 + RbranchDUM29 + 
+                        RbranchDUM30 + RbranchDUM31 + RbranchDUM32 + RbranchDUM33 + 
+                        RbranchDUM34 + RbranchDUM35 + RbranchDUM36 + RbranchDUM37 + 
+                        RbranchDUM38 + RbranchDUM39 + RbranchDUM40 + RbranchDUM41 + 
+                        RbranchDUM42 + RbranchDUM43 + RbranchDUM44 + RbranchDUM45 + 
+                        RbranchDUM46 + RbranchDUM47 + RbranchDUM48 + RbranchDUM49 + 
+                        RbranchDUM50 + RbranchDUM51 + RbranchDUM52 + RbranchDUM53 + 
+                        RbranchDUM54 + RbranchDUM55 + RbranchDUM56 + RbranchDUM57 + 
+                        RbranchDUM58 + RbranchDUM59 + RbranchDUM60 + RbranchDUM61 + 
+                        RbranchDUM62 + RbranchDUM63 + RbranchDUM64 + RbranchDUM65 + 
+                        RbranchDUM66 + RbranchDUM67 + RbranchDUM68 + RbranchDUM69 + 
+                        RbranchDUM70 + RbranchDUM71 + RbranchDUM72 + RbranchDUM73 + 
+                        RbranchDUM74 + RbranchDUM75 + RbranchDUM76 + RbranchDUM77 + 
+                        RbranchDUM78 + RbranchDUM79 + RbranchDUM80 + RbranchDUM81 + 
+                        RbranchDUM82 + RbranchDUM83 + RbranchDUM84 + RbranchDUM85 + 
+                        RbranchDUM86 + RbranchDUM87 + RbranchDUM88 + RbranchDUM89 + 
+                        RbranchDUM90 + RbranchDUM91 + RbranchDUM92 + RbranchDUM93 + 
+                        RbranchDUM94 + RbranchDUM95 + RbranchDUM96 + RbranchDUM97 + 
+                        RbranchDUM98 + RbranchDUM99 + RbranchDUM100 + RbranchDUM101 + 
+                        RbranchDUM102 + RbranchDUM103 + RbranchDUM104 + RbranchDUM105 + 
+                        RbranchDUM106 + RbranchDUM107 + RbranchDUM108 + RbranchDUM109 + 
+                        RbranchDUM110 + RbranchDUM111 + RbranchDUM112 + RbranchDUM113 + 
+                        RbranchDUM114 + RbranchDUM115 + RbranchDUM116 + RbranchDUM117 + 
+                        RbranchDUM118 + RbranchDUM119 + RbranchDUM120 + RbranchDUM121 + 
+                        RbranchDUM122 + RbranchDUM123 + RbranchDUM124 + RbranchDUM125 + 
+                        RbranchDUM126 + RbranchDUM127 + RbranchDUM128 + RbranchDUM129 + 
+                        RbranchDUM130 + RbranchDUM131 + RbranchDUM132 + RbranchDUM133 + 
+                        RbranchDUM134 + RbranchDUM135 + RbranchDUM136 + RbranchDUM137 + 
+                        RbranchDUM138 + RbranchDUM139 + RbranchDUM140 + RbranchDUM141 + 
+                        RbranchDUM142 + RbranchDUM143 + RbranchDUM144 + RbranchDUM145 + 
+                        RbranchDUM146 + RbranchDUM147 + RbranchDUM148 + RbranchDUM149 + 
+                        RbranchDUM150 + RbranchDUM151 + RbranchDUM152 + RbranchDUM153 + 
+                        RbranchDUM154 + RbranchDUM155 + RbranchDUM156 + RbranchDUM157 + 
+                        RbranchDUM158 + RbranchDUM159 + RbranchDUM160 + RbranchDUM161 + 
+                        RbranchDUM162 + RbranchDUM163 + RbranchDUM164 + RbranchDUM165 + 
+                        RbranchDUM166 + RbranchDUM167 + RbranchDUM168 + RbranchDUM169 + 
+                        RbranchDUM170 + RbranchDUM171 + RbranchDUM172 + RbranchDUM173 + 
+                        RbranchDUM174 + RbranchDUM175 + RbranchDUM176 + RbranchDUM177 + 
+                        RbranchDUM178 + RbranchDUM179 + RbranchDUM180 + RbranchDUM181 + 
+                        RbranchDUM182 + RbranchDUM183 + RbranchDUM184 + RbranchDUM185 + 
+                        RbranchDUM186 + RbranchDUM187 + RbranchDUM188 + RbranchDUM189 + 
+                        RbranchDUM190 + RbranchDUM191 + RbranchDUM192 + RbranchDUM193 + 
+                        RbranchDUM194 + RbranchDUM195 + RbranchDUM196 + RbranchDUM197 + 
+                        RbranchDUM198 + RbranchDUM199 + RbranchDUM200 + RbranchDUM201 + 
+                        RbranchDUM202 + RbranchDUM203 + RbranchDUM204 + RbranchDUM205 + 
+                        RbranchDUM206 + RbranchDUM207 + RbranchDUM208 + RbranchDUM209 + 
+                        RbranchDUM210 + RbranchDUM211 + RbranchDUM212 + RbranchDUM213 + 
+                        RbranchDUM214 + RbranchDUM215 + RbranchDUM216 + RbranchDUM217 + 
+                        RbranchDUM218 + RbranchDUM219 + RbranchDUM220 + RbranchDUM221 + 
+                        RbranchDUM222 + RbranchDUM223 + RbranchDUM224 + RbranchDUM225 + 
+                        RbranchDUM226 + RbranchDUM227 + RbranchDUM228 + RbranchDUM229 + 
+                        RbranchDUM230 + RbranchDUM231 + RbranchDUM232 + RbranchDUM233 + 
+                        RbranchDUM234 + RbranchDUM235 + RbranchDUM236 + RbranchDUM237 + 
+                        RbranchDUM238 + RbranchDUM239 + RbranchDUM240 + RbranchDUM241 + 
+                        RbranchDUM242 + RbranchDUM243 + RbranchDUM244 + RbranchDUM245 + 
+                        RbranchDUM246 + RbranchDUM247 + RbranchDUM248 + RbranchDUM249 + 
+                        RbranchDUM250 + RbranchDUM251 + RbranchDUM252 + RbranchDUM253 + 
+                        RbranchDUM254 + RbranchDUM255 + RbranchDUM256 + RbranchDUM257 + 
+                        RbranchDUM258 + RbranchDUM259 + RbranchDUM260 + RbranchDUM261 + 
+                        RbranchDUM262 + RbranchDUM263 + RbranchDUM264 + RbranchDUM265 + 
+                        RbranchDUM266 + RbranchDUM267 + RbranchDUM268 + RbranchDUM269 + 
+                        RbranchDUM270 + RbranchDUM271 + RbranchDUM272 + RbranchDUM273 + 
+                        RbranchDUM274 + RbranchDUM275 + RbranchDUM276 + RbranchDUM277 + 
+                        RbranchDUM278 + RbranchDUM279 + RbranchDUM280 + RbranchDUM281 + 
+                        RbranchDUM282 + RbranchDUM283 + RbranchDUM284 + RbranchDUM285 + 
+                        RbranchDUM286 + RbranchDUM287 + RbranchDUM288 + RbranchDUM289 + 
+                        RbranchDUM290 + RbranchDUM291 + RbranchDUM292 + RbranchDUM293 + 
+                        RbranchDUM294 + RbranchDUM295 + RbranchDUM296, data = tab3)
+tol <- 10^-5
+t3X_3 <- t3X_3[,which(apply(t3X_3, 2, var)>tol)]
+w3_3 <- rlassoEffects(x = t3X_3, y = tab3$lhrly, index = c(1,2,3), method = "double selection", post = TRUE)
+p_w3_3 <- p_adjust(w3_3)
+
+t3X_4 <- model.matrix( ~ 1 + AA + SA + SS, data=tab3_2)
+tol <- 10^-5
+t3X_4 <- t3X_4[,which(apply(t3X_4, 2, var)>tol)]
+w3_4 <- rlassoEffects(x = t3X_4, y = tab3_2$lhrly, index = c(1,2,3), method = "double selection", post = TRUE)
+p_w3_4 <- p_adjust(w3_4)
+
+t3X_5 <- model.matrix( ~ 1 + AA + SA + SS + HSD_1_4 + HSD_5_8 + HSD_9_11 + 
+                         HSG + HSGBAG + POSTSEC + BA + AD + exp + exp2 + exp3 +
+                         exp4, data = tab3_2)
+tol <- 10^-5
+t3X_5 <- t3X_5[,which(apply(t3X_5, 2, var)>tol)]
+w3_5 <- rlassoEffects(x = t3X_5, y = tab3_2$lhrly, index = c(1,2,3), method = "double selection", post = TRUE)
+p_w3_5 <- p_adjust(w3_5)
+
+t3X_6 <- model.matrix(~ 1 + AA + SA + SS + HSD_1_4 + HSD_5_8 + HSD_9_11 + 
+                        HSG + HSGBAG + POSTSEC + BA + AD + exp + exp2 + exp3 +
+                        exp4 + localityDUM1 + localityDUM2 + localityDUM3 + 
+                        localityDUM4 + localityDUM5 + localityDUM6 + 
+                        localityDUM7 + localityDUM8 + localityDUM9 + RbranchDUM1 + 
+                        RbranchDUM2 + RbranchDUM3 + RbranchDUM4 + RbranchDUM5 + 
+                        RbranchDUM6 + RbranchDUM7 + RbranchDUM8 + RbranchDUM9 + 
+                        RbranchDUM10 + RbranchDUM11 + RbranchDUM12 + RbranchDUM13 + 
+                        RbranchDUM14 + RbranchDUM15 + RbranchDUM16 + RbranchDUM17 + 
+                        RbranchDUM18 + RbranchDUM19 + RbranchDUM20 + RbranchDUM21 + 
+                        RbranchDUM22 + RbranchDUM23 + RbranchDUM24 + RbranchDUM25 + 
+                        RbranchDUM26 + RbranchDUM27 + RbranchDUM28 + RbranchDUM29 + 
+                        RbranchDUM30 + RbranchDUM31 + RbranchDUM32 + RbranchDUM33 + 
+                        RbranchDUM34 + RbranchDUM35 + RbranchDUM36 + RbranchDUM37 + 
+                        RbranchDUM38 + RbranchDUM39 + RbranchDUM40 + RbranchDUM41 + 
+                        RbranchDUM42 + RbranchDUM43 + RbranchDUM44 + RbranchDUM45 + 
+                        RbranchDUM46 + RbranchDUM47 + RbranchDUM48 + RbranchDUM49 + 
+                        RbranchDUM50 + RbranchDUM51 + RbranchDUM52 + RbranchDUM53 + 
+                        RbranchDUM54 + RbranchDUM55 + RbranchDUM56 + RbranchDUM57 + 
+                        RbranchDUM58 + RbranchDUM59 + RbranchDUM60 + RbranchDUM61 + 
+                        RbranchDUM62 + RbranchDUM63 + RbranchDUM64 + RbranchDUM65 + 
+                        RbranchDUM66 + RbranchDUM67 + RbranchDUM68 + RbranchDUM69 + 
+                        RbranchDUM70 + RbranchDUM71 + RbranchDUM72 + RbranchDUM73 + 
+                        RbranchDUM74 + RbranchDUM75 + RbranchDUM76 + RbranchDUM77 + 
+                        RbranchDUM78 + RbranchDUM79 + RbranchDUM80 + RbranchDUM81 + 
+                        RbranchDUM82 + RbranchDUM83 + RbranchDUM84 + RbranchDUM85 + 
+                        RbranchDUM86 + RbranchDUM87 + RbranchDUM88 + RbranchDUM89 + 
+                        RbranchDUM90 + RbranchDUM91 + RbranchDUM92 + RbranchDUM93 + 
+                        RbranchDUM94 + RbranchDUM95 + RbranchDUM96 + RbranchDUM97 + 
+                        RbranchDUM98 + RbranchDUM99 + RbranchDUM100 + RbranchDUM101 + 
+                        RbranchDUM102 + RbranchDUM103 + RbranchDUM104 + RbranchDUM105 + 
+                        RbranchDUM106 + RbranchDUM107 + RbranchDUM108 + RbranchDUM109 + 
+                        RbranchDUM110 + RbranchDUM111 + RbranchDUM112 + RbranchDUM113 + 
+                        RbranchDUM114 + RbranchDUM115 + RbranchDUM116 + RbranchDUM117 + 
+                        RbranchDUM118 + RbranchDUM119 + RbranchDUM120 + RbranchDUM121 + 
+                        RbranchDUM122 + RbranchDUM123 + RbranchDUM124 + RbranchDUM125 + 
+                        RbranchDUM126 + RbranchDUM127 + RbranchDUM128 + RbranchDUM129 + 
+                        RbranchDUM130 + RbranchDUM131 + RbranchDUM132 + RbranchDUM133 + 
+                        RbranchDUM134 + RbranchDUM135 + RbranchDUM136 + RbranchDUM137 + 
+                        RbranchDUM138 + RbranchDUM139 + RbranchDUM140 + RbranchDUM141 + 
+                        RbranchDUM142 + RbranchDUM143 + RbranchDUM144 + RbranchDUM145 + 
+                        RbranchDUM146 + RbranchDUM147 + RbranchDUM148 + RbranchDUM149 + 
+                        RbranchDUM150 + RbranchDUM151 + RbranchDUM152 + RbranchDUM153 + 
+                        RbranchDUM154 + RbranchDUM155 + RbranchDUM156 + RbranchDUM157 + 
+                        RbranchDUM158 + RbranchDUM159 + RbranchDUM160 + RbranchDUM161 + 
+                        RbranchDUM162 + RbranchDUM163 + RbranchDUM164 + RbranchDUM165 + 
+                        RbranchDUM166 + RbranchDUM167 + RbranchDUM168 + RbranchDUM169 + 
+                        RbranchDUM170 + RbranchDUM171 + RbranchDUM172 + RbranchDUM173 + 
+                        RbranchDUM174 + RbranchDUM175 + RbranchDUM176 + RbranchDUM177 + 
+                        RbranchDUM178 + RbranchDUM179 + RbranchDUM180 + RbranchDUM181 + 
+                        RbranchDUM182 + RbranchDUM183 + RbranchDUM184 + RbranchDUM185 + 
+                        RbranchDUM186 + RbranchDUM187 + RbranchDUM188 + RbranchDUM189 + 
+                        RbranchDUM190 + RbranchDUM191 + RbranchDUM192 + RbranchDUM193 + 
+                        RbranchDUM194 + RbranchDUM195 + RbranchDUM196 + RbranchDUM197 + 
+                        RbranchDUM198 + RbranchDUM199 + RbranchDUM200 + RbranchDUM201 + 
+                        RbranchDUM202 + RbranchDUM203 + RbranchDUM204 + RbranchDUM205 + 
+                        RbranchDUM206 + RbranchDUM207 + RbranchDUM208 + RbranchDUM209 + 
+                        RbranchDUM210 + RbranchDUM211 + RbranchDUM212 + RbranchDUM213 + 
+                        RbranchDUM214 + RbranchDUM215 + RbranchDUM216 + RbranchDUM217 + 
+                        RbranchDUM218 + RbranchDUM219 + RbranchDUM220 + RbranchDUM221 + 
+                        RbranchDUM222 + RbranchDUM223 + RbranchDUM224 + RbranchDUM225 + 
+                        RbranchDUM226 + RbranchDUM227 + RbranchDUM228 + RbranchDUM229 + 
+                        RbranchDUM230 + RbranchDUM231 + RbranchDUM232 + RbranchDUM233 + 
+                        RbranchDUM234 + RbranchDUM235 + RbranchDUM236 + RbranchDUM237 + 
+                        RbranchDUM238 + RbranchDUM239 + RbranchDUM240 + RbranchDUM241 + 
+                        RbranchDUM242 + RbranchDUM243 + RbranchDUM244 + RbranchDUM245 + 
+                        RbranchDUM246 + RbranchDUM247 + RbranchDUM248 + RbranchDUM249 + 
+                        RbranchDUM250 + RbranchDUM251 + RbranchDUM252 + RbranchDUM253 + 
+                        RbranchDUM254 + RbranchDUM255 + RbranchDUM256 + RbranchDUM257 + 
+                        RbranchDUM258 + RbranchDUM259 + RbranchDUM260 + RbranchDUM261 + 
+                        RbranchDUM262 + RbranchDUM263 + RbranchDUM264 + RbranchDUM265 + 
+                        RbranchDUM266 + RbranchDUM267 + RbranchDUM268 + RbranchDUM269 + 
+                        RbranchDUM270 + RbranchDUM271 + RbranchDUM272 + RbranchDUM273 + 
+                        RbranchDUM274 + RbranchDUM275 + RbranchDUM276 + RbranchDUM277 + 
+                        RbranchDUM278 + RbranchDUM279 + RbranchDUM280 + RbranchDUM281 + 
+                        RbranchDUM282 + RbranchDUM283 + RbranchDUM284 + RbranchDUM285 + 
+                        RbranchDUM286 + RbranchDUM287 + RbranchDUM288 + RbranchDUM289 + 
+                        RbranchDUM290 + RbranchDUM291 + RbranchDUM292 + RbranchDUM293 + 
+                        RbranchDUM294 + RbranchDUM295 + RbranchDUM296, data = tab3_2)
+tol <- 10^-5
+t3X_6 <- t3X_6[,which(apply(t3X_6, 2, var)>tol)]
+w3_6 <- rlassoEffects(x = t3X_6, y = tab3_2$lhrly, index = c(1,2,3), method = "double selection", post = TRUE)
+p_w3_6 <- p_adjust(w3_6)
+```
+
+```{r echo=TRUE}
+col_table <- function(mat){
+  a <- format(round(as.vector(mat[,1]),5), nsmall = 5)
+  b <- as.vector(mat[,2])
+  b <- paste("(", b, ")")
+  b <- gsub(" ", "", b, fixed = TRUE)
+  vec <- c(paste(a[2], " ", b[2]), 
+           paste(a[1], " ", b[1]), 
+           paste(a[3], " ", b[3]))
+}
+
+table7 <- data.frame(rbind( 
+                cbind(col_table(p_w3_1), col_table(p_w3_2), col_table(p_w3_3),
+                col_table(p_w3_4), col_table(p_w3_5), col_table(p_w3_6)),
+                c("No", "Yes", "Yes", "No", "Yes", "Yes"),
+                c("No", "No", "Yes", "No", "No", "Yes")), 
+                row.names = c("SA", "AA", "SS", 
+                              "Education & Experience",
+                              "Occupation, Industry & Location"))
+colnames(table7) <- c("(I)", "(II)", "(III)", "(IV)", "(V)", "(VI)")
+table7 <- table7 %>%
+  kbl(caption = "Table 7: Results from PDS-Lasso application to paper data") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+add_header_above(table7, header = c(" " = 1, "Age 22-65 (N=32,646)" = 3, "Age 30-55 (N=22,948)" = 3))
+```
+To investigate this quantitatively they analyse 3 broad cases. One for male individuals born to mixed-unions, one for women and lastly the case of women who married with a male individual with an Ashkenazi sounding last name and who therefore *changed* their suggested ethnicity. Since in this section, the objective is to see how the PDS-LASSO methodology affects model coefficients I will solely analyse the first case. As mentioned before, only the Web Appendix data was available. In it, authors extend their analysis by running regressions on data of the 1995 Israeli census and where they control for a rich set of characteristics, where unlike in the main body of the paper however, they do not investigate how the suggested chromatic scale skin tone of the last name affects wages.
+
+
+Table 7 thus shows the results of the application of the PDS-LASSO on the data, where coefficients in brackets are *p-values*. In it, it is possible to see that columns (I) and (IV) remain the same as in the Web Appendix. This is unsurprising, as here the model is solely based on the ethnicity of invididuals; there is not much the methodology can change, nor select. AA indicates individuals whose parents are of Ashkenazi origin, while SS that both parents are of Sephardic origin. Correspondingly, the comparison group is made of those individuals with an AS origin. It is in columns (II)-(III) and (V)-(VI) where it is possible to see a noticeable difference between coefficients. In columns (II), (III) and (V), the measures indicate that the gap is bigger than the OLS model would suggest, as SA coefficients become more negative and more statistically significant. It is only in column (VI) with a full model specification that the PDS-LASSO gives a more reduced effect when looking at the SA coefficient. 
+
+The methodology therefore appears to improve results, as there are noticeable differences that indicate to make results more statistically significant. In other words, when based on same models the PDS-LASSO makes selections that improve results and thus infers wage gap coefficients that lie closer to true values.
+
+## 5. Conclusion
+
+In this project, I have demonstrated that applying the PDS-LASSO in contexts where the interest is to infer the extent of wage gaps, is effective. The simulations indicate however, that this is increasingly the case when the size of the model is more reduced and when sparsity lies in the range of [10,20] with the chosen size of $N$. Furthermore, the Data Generating Process that I chose contains a great deal of parameters that can be changed, but I have tried to stick to choices that emulate the behavior the data indicates to have in [@Rubinstein_2013]. I correspondingly try to address different forms of *betas*, where I include some generated by a random normal distribution and others with a decay that thus further induces approximate sparsity. The inclusion of the latter might drive results and thus it might be interesting to investigate how different forms of true coefficients affect the behavior of the methodology.
+
+Moreover, applying the PDS-LASSO on real data appears to improve results, as statistical significances increase and thus give confidence to believe that the changed paramteres resemble the real data generating processes more closely. In their analysis [@bach_2018a] further expand models by adding interactions of the *Gender* variable with other variables included. In my case, this would have meant to have interactions with the AA, SA and SS indicator variables. This would have extended the size of $p$ and I have therefore left it out to stick to the comparison of the paper data. However, it might be interesting to explore this in future endeavours.
+
+## 6. References
