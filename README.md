@@ -1,6 +1,6 @@
 # Final Project for Computational Statistics Lecture | University of Bonn | Summer Semester 2022
 
-You can see the Project [here](C:\Users\lione\Desktop\Uni\Master\Jobs\2023-2\For_github\PDS_Lasso-Wage_Gap).
+You can see the Project [here](https://lionel-munoz.github.io/PDS_Lasso-Wage-Gap/Computational-statistics_final_project.html).
 
 This project explores the performance of the Post Double Selection (PDS) Lasso Methodology when analysing Wage Gaps. Here, the use of least squares regressions is widespread, but potentially biased. In such a case, practitioners need to decide what variables to use for a regression and therefore might undergo an Omitted Variable Bias. The PDS Lasso methodology of [Belloni et al. (2014a)](https://doi.org/10.1257/jep.28.2.29) and [Belloni et al. (2014b)](https://doi.org/10.1093/restud/rdt044) is designed to overcome such an issue in the context of treatment and structural effects. Arguably, Wage Gaps fall under this definition and thus the method becomes ideal for their analysis. 
 
